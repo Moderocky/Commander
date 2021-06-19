@@ -16,8 +16,6 @@ public class TreeResolverTest {
         assert String.join("\n", tree1.getPatterns()).equals(String.join("\n", tree2.getPatterns()));
         assert tree1.getNextCompletions("cecil", "").equals(tree2.getNextCompletions("cecil", ""));
         assert tree1.getNextCompletions("").equals(tree2.getNextCompletions(""));
-        
-        System.out.println(String.join("\n", tree1.getPatterns()));
     }
     
     static class ExTree1 extends Commander<ResultReader> {

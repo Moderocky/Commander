@@ -17,7 +17,10 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -28,14 +31,19 @@ public abstract class Commander<S> {
     final MagicMap<String, @Nullable String> patternDescriptions = new MagicMap<>();
     final ArgumentTree tree = new ArgumentTree();
     protected CommandSingleAction<S> defaultAction;
+    protected Function<CommandContext<S>, Boolean> predicate;
+    protected Consumer<CommandContext<S>> failureAction;
     protected BiConsumer<CommandContext<S>, Throwable> error = null;
     protected ExecutorService pool;
+    protected String description;
     private String namespace;
     private volatile String input;
     
     {
         pool = null;
+        predicate = s -> true;
         defaultAction = getDefault();
+        failureAction = context -> defaultAction.accept(context.sender());
         compile();
     }
     
@@ -98,6 +106,14 @@ public abstract class Commander<S> {
         }
     }
     
+    public boolean canExecute(CommandContext<S> context) {
+        return predicate.apply(context);
+    }
+    
+    public CompletableFuture<Boolean> canExecuteAsync(CommandContext<S> context) {
+        return CompletableFuture.completedFuture(canExecute(context));
+    }
+    
     protected abstract CommandImpl create();
     
     public MagicList<String> getPossibleArguments(String... inputs) {
@@ -117,7 +133,11 @@ public abstract class Commander<S> {
         return map;
     }
     
-    public boolean canExecute(final CommandContext<S> context) {
+    public String getDescription() {
+        return description;
+    }
+    
+    public boolean matchesLabel(final CommandContext<S> context) {
         return namespace.equalsIgnoreCase(context.command()) || aliases.containsIgnoreCase(context.command());
     }
     
@@ -129,8 +149,14 @@ public abstract class Commander<S> {
         final boolean async = (pool != null);
         final Runnable executor = prepareCommandExecution(context);
         try {
-            if (async) pool.submit(executor);
-            else executor.run();
+            if (async) canExecuteAsync(context)
+                .thenAcceptAsync(boo -> {
+                    if (boo) executor.run();
+                    else failureAction.accept(context);
+                }, pool);
+            else if (canExecute(context))
+                executor.run();
+            else failureAction.accept(context);
             return true;
         } catch (Throwable throwable) {
             if (error == null) throw new CommandParseError(throwable);
@@ -200,7 +226,11 @@ public abstract class Commander<S> {
             throw new IllegalCommandException("Cannot dispatch asynchronous command execution without a thread pool!");
         final Runnable executor = prepareCommandExecution(context);
         try {
-            return CompletableFuture.runAsync(executor, pool);
+            return canExecuteAsync(context)
+                .thenAcceptAsync(boo -> {
+                    if (boo) executor.run();
+                    else failureAction.accept(context);
+                }, pool);
         } catch (Throwable throwable) {
             if (error == null) throw new CommandParseError(throwable);
             else error.accept(context, throwable);
@@ -613,6 +643,21 @@ public abstract class Commander<S> {
     public class CommandImpl {
         
         private CommandImpl() {
+        }
+        
+        public CommandImpl setDescription(String description) {
+            Commander.this.description = description;
+            return this;
+        }
+        
+        public CommandImpl setPredicate(Function<CommandContext<S>, Boolean> check) {
+            predicate = check;
+            return this;
+        }
+        
+        public CommandImpl setFailureBehaviour(Consumer<CommandContext<S>> action) {
+            failureAction = action;
+            return this;
         }
         
         public CommandImpl allowAsyncExecution() {

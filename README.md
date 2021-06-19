@@ -27,7 +27,7 @@ A framework for building standard command systems.
 <dependency>
     <groupId>mx.kenzie</groupId>
     <artifactId>commander</artifactId>
-    <version>4.0.0</version>
+    <version>4.0.1</version>
     <scope>compile</scope>
 </dependency>
 ```
